@@ -1,25 +1,31 @@
 Param(
-   [string]$mixinPassword,
-   [string]$vsoPAT
+  [string]$arch,
+  [string]$mixinPassword,
+  [string]$vsoPAT
 )
 
+. .\build\tfs\win32\node.ps1
+. .\scripts\env.ps1
 . .\build\tfs\win32\lib.ps1
 
-# In order to get _netrc to work, we need a HOME variable setup
-$env:HOME=$env:USERPROFILE
-
-$env:npm_config_disturl="https://atom.io/download/electron"
-$env:npm_config_target="1.6.6"
-$env:npm_config_runtime="electron"
-$env:npm_config_cache="$HOME/.npm-electron"
-$env:npm_config_arch="ia32"
-# mkdir -p "$env:npm_config_cache"
-
 # Create a _netrc file to download distro dependencies
-"machine monacotools.visualstudio.com password ${vsoPAT}" | Out-File "$env:USERPROFILE\_netrc" -Encoding ASCII
+# In order to get _netrc to work, we need a HOME variable setup
+"machine monacotools.visualstudio.com password ${vsoPAT}" | Out-File "$env:HOME\_netrc" -Encoding ASCII
+
+# Set the right architecture
+$env:npm_config_arch="$arch"
+$env:CHILD_CONCURRENCY="1"
 
 step "Install dependencies" {
-  exec { & npm install }
+  exec { & yarn }
+}
+
+step "Hygiene" {
+  exec { & npm run gulp -- hygiene }
+}
+
+step "Monaco Editor Check" {
+	exec { & .\node_modules\.bin\tsc -p .\src\tsconfig.monaco.json --noEmit }
 }
 
 $env:VSCODE_MIXIN_PASSWORD = $mixinPassword
@@ -27,13 +33,25 @@ step "Mix in repository from vscode-distro" {
   exec { & npm run gulp -- mixin }
 }
 
+step "Get Electron" {
+  exec { & npm run gulp -- "electron-$global:arch" }
+}
+
 step "Install distro dependencies" {
-  exec { & npm run install-distro }
+  exec { & node build\tfs\common\installDistro.js }
 }
 
 step "Build minified" {
-  exec { & npm run gulp -- --max_old_space_size=4096 vscode-win32-min }
+  exec { & npm run gulp -- "vscode-win32-$global:arch-min" }
 }
+
+step "Copy Inno updater" {
+  exec { & npm run gulp -- "vscode-win32-$global:arch-copy-inno-updater" }
+}
+
+# step "Create loader snapshot" {
+#   exec { & 	node build\lib\snapshotLoader.js --arch=$global:arch }
+# }
 
 step "Run unit tests" {
   exec { & .\scripts\test.bat --build --reporter dot }
@@ -41,6 +59,13 @@ step "Run unit tests" {
 
 # step "Run integration tests" {
 #   exec { & .\scripts\test-integration.bat }
+# }
+
+# step "Run smoke test" {
+# 	$Artifacts = "$env:AGENT_BUILDDIRECTORY\smoketest-artifacts"
+# 	Remove-Item -Recurse -Force -ErrorAction Ignore $Artifacts
+
+# 	exec { & npm run smoketest -- --build "$env:AGENT_BUILDDIRECTORY\VSCode-win32-$global:arch" --log "$Artifacts" }
 # }
 
 done

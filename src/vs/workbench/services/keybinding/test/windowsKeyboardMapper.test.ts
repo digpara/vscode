@@ -14,9 +14,9 @@ import { ScanCodeBinding, ScanCode } from 'vs/workbench/services/keybinding/comm
 
 const WRITE_FILE_IF_DIFFERENT = false;
 
-function createKeyboardMapper(file: string): TPromise<WindowsKeyboardMapper> {
+function createKeyboardMapper(isUSStandard: boolean, file: string): TPromise<WindowsKeyboardMapper> {
 	return readRawMapping<IWindowsKeyboardMapping>(file).then((rawMappings) => {
-		return new WindowsKeyboardMapper(rawMappings);
+		return new WindowsKeyboardMapper(isUSStandard, rawMappings);
 	});
 }
 
@@ -28,15 +28,14 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 
 	let mapper: WindowsKeyboardMapper;
 
-	suiteSetup((done) => {
-		createKeyboardMapper('win_de_ch').then((_mapper) => {
+	suiteSetup(() => {
+		return createKeyboardMapper(false, 'win_de_ch').then((_mapper) => {
 			mapper = _mapper;
-			done();
-		}, done);
+		});
 	});
 
-	test('mapping', (done) => {
-		assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_de_ch.txt', done);
+	test('mapping', () => {
+		return assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_de_ch.txt');
 	});
 
 	test('resolveKeybinding Ctrl+A', () => {
@@ -102,7 +101,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+^',
 				ariaLabel: 'Control+^',
 				electronAccelerator: 'Ctrl+]',
-				userSettingsLabel: 'ctrl+]',
+				userSettingsLabel: 'ctrl+oem_6',
 				isWYSIWYG: false,
 				isChord: false,
 				dispatchParts: ['ctrl+]', null],
@@ -125,7 +124,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+^',
 				ariaLabel: 'Control+^',
 				electronAccelerator: 'Ctrl+]',
-				userSettingsLabel: 'ctrl+]',
+				userSettingsLabel: 'ctrl+oem_6',
 				isWYSIWYG: false,
 				isChord: false,
 				dispatchParts: ['ctrl+]', null],
@@ -141,7 +140,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Shift+^',
 				ariaLabel: 'Shift+^',
 				electronAccelerator: 'Shift+]',
-				userSettingsLabel: 'shift+]',
+				userSettingsLabel: 'shift+oem_6',
 				isWYSIWYG: false,
 				isChord: false,
 				dispatchParts: ['shift+]', null],
@@ -157,7 +156,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+§',
 				ariaLabel: 'Control+§',
 				electronAccelerator: 'Ctrl+/',
-				userSettingsLabel: 'ctrl+/',
+				userSettingsLabel: 'ctrl+oem_2',
 				isWYSIWYG: false,
 				isChord: false,
 				dispatchParts: ['ctrl+/', null],
@@ -173,7 +172,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+Shift+§',
 				ariaLabel: 'Control+Shift+§',
 				electronAccelerator: 'Ctrl+Shift+/',
-				userSettingsLabel: 'ctrl+shift+/',
+				userSettingsLabel: 'ctrl+shift+oem_2',
 				isWYSIWYG: false,
 				isChord: false,
 				dispatchParts: ['ctrl+shift+/', null],
@@ -189,7 +188,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+K Ctrl+ä',
 				ariaLabel: 'Control+K Control+ä',
 				electronAccelerator: null,
-				userSettingsLabel: 'ctrl+k ctrl+\\',
+				userSettingsLabel: 'ctrl+k ctrl+oem_5',
 				isWYSIWYG: false,
 				isChord: true,
 				dispatchParts: ['ctrl+K', 'ctrl+\\'],
@@ -285,7 +284,7 @@ suite('keyboardMapper - WINDOWS de_ch', () => {
 				label: 'Ctrl+, Ctrl+§',
 				ariaLabel: 'Control+, Control+§',
 				electronAccelerator: null,
-				userSettingsLabel: 'ctrl+, ctrl+/',
+				userSettingsLabel: 'ctrl+oem_comma ctrl+oem_2',
 				isWYSIWYG: false,
 				isChord: true,
 				dispatchParts: ['ctrl+,', 'ctrl+/'],
@@ -321,15 +320,14 @@ suite('keyboardMapper - WINDOWS en_us', () => {
 
 	let mapper: WindowsKeyboardMapper;
 
-	suiteSetup((done) => {
-		createKeyboardMapper('win_en_us').then((_mapper) => {
+	suiteSetup(() => {
+		return createKeyboardMapper(true, 'win_en_us').then((_mapper) => {
 			mapper = _mapper;
-			done();
-		}, done);
+		});
 	});
 
-	test('mapping', (done) => {
-		assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_en_us.txt', done);
+	test('mapping', () => {
+		return assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_en_us.txt');
 	});
 
 	test('resolveKeybinding Ctrl+K Ctrl+\\', () => {
@@ -406,20 +404,18 @@ suite('keyboardMapper - WINDOWS en_us', () => {
 	});
 });
 
-
 suite('keyboardMapper - WINDOWS por_ptb', () => {
 
 	let mapper: WindowsKeyboardMapper;
 
-	suiteSetup((done) => {
-		createKeyboardMapper('win_por_ptb').then((_mapper) => {
+	suiteSetup(() => {
+		return createKeyboardMapper(false, 'win_por_ptb').then((_mapper) => {
 			mapper = _mapper;
-			done();
-		}, done);
+		});
 	});
 
-	test('mapping', (done) => {
-		assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_por_ptb.txt', done);
+	test('mapping', () => {
+		return assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_por_ptb.txt');
 	});
 
 	test('resolveKeyboardEvent Ctrl+[IntlRo]', () => {
@@ -469,9 +465,40 @@ suite('keyboardMapper - WINDOWS por_ptb', () => {
 	});
 });
 
-suite('misc', () => {
+suite('keyboardMapper - WINDOWS ru', () => {
+
+	let mapper: WindowsKeyboardMapper;
+
+	suiteSetup(() => {
+		return createKeyboardMapper(false, 'win_ru').then((_mapper) => {
+			mapper = _mapper;
+		});
+	});
+
+	test('mapping', () => {
+		return assertMapping(WRITE_FILE_IF_DIFFERENT, mapper, 'win_ru.txt');
+	});
+
+	test('issue ##24361: resolveKeybinding Ctrl+K Ctrl+K', () => {
+		_assertResolveKeybinding(
+			mapper,
+			KeyChord(KeyMod.CtrlCmd | KeyCode.KEY_K, KeyMod.CtrlCmd | KeyCode.KEY_K),
+			[{
+				label: 'Ctrl+K Ctrl+K',
+				ariaLabel: 'Control+K Control+K',
+				electronAccelerator: null,
+				userSettingsLabel: 'ctrl+k ctrl+k',
+				isWYSIWYG: true,
+				isChord: true,
+				dispatchParts: ['ctrl+K', 'ctrl+K'],
+			}]
+		);
+	});
+});
+
+suite('keyboardMapper - misc', () => {
 	test('issue #23513: Toggle Sidebar Visibility and Go to Line display same key mapping in Arabic keyboard', () => {
-		const mapper = new WindowsKeyboardMapper({
+		const mapper = new WindowsKeyboardMapper(false, {
 			'KeyB': {
 				'vkey': 'VK_B',
 				'value': 'لا',
@@ -492,11 +519,11 @@ suite('misc', () => {
 			mapper,
 			KeyMod.CtrlCmd | KeyCode.KEY_B,
 			[{
-				label: 'Ctrl+لا',
-				ariaLabel: 'Control+لا',
+				label: 'Ctrl+B',
+				ariaLabel: 'Control+B',
 				electronAccelerator: 'Ctrl+B',
 				userSettingsLabel: 'ctrl+b',
-				isWYSIWYG: false,
+				isWYSIWYG: true,
 				isChord: false,
 				dispatchParts: ['ctrl+B', null],
 			}]

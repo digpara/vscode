@@ -6,10 +6,10 @@
 'use strict';
 
 import { OperatingSystem } from 'vs/base/common/platform';
-import { KeyCode, ResolvedKeybinding, KeyCodeUtils, SimpleKeybinding, Keybinding, KeybindingType, USER_SETTINGS, ResolvedKeybindingPart } from 'vs/base/common/keyCodes';
+import { KeyCode, ResolvedKeybinding, KeyCodeUtils, SimpleKeybinding, Keybinding, KeybindingType, ResolvedKeybindingPart } from 'vs/base/common/keyCodes';
 import { ScanCode, ScanCodeUtils, IMMUTABLE_CODE_TO_KEY_CODE, IMMUTABLE_KEY_CODE_TO_CODE, ScanCodeBinding } from 'vs/workbench/services/keybinding/common/scanCode';
 import { CharCode } from 'vs/base/common/charCode';
-import { UILabelProvider, AriaLabelProvider, UserSettingsLabelProvider, ElectronAcceleratorLabelProvider } from 'vs/platform/keybinding/common/keybindingLabels';
+import { UILabelProvider, AriaLabelProvider, UserSettingsLabelProvider, ElectronAcceleratorLabelProvider } from 'vs/base/common/keybindingLabels';
 import { IKeyboardMapper } from 'vs/workbench/services/keybinding/common/keyboardMapper';
 import { IKeyboardEvent } from 'vs/platform/keybinding/common/keybinding';
 
@@ -57,13 +57,6 @@ export function macLinuxKeyboardMappingEquals(a: IMacLinuxKeyboardMapping, b: IM
 	return true;
 }
 
-const LOG = false;
-function log(str: string): void {
-	if (LOG) {
-		console.info(str);
-	}
-}
-
 /**
  * A map from character to key codes.
  * e.g. Contains entries such as:
@@ -81,6 +74,9 @@ export class NativeResolvedKeybinding extends ResolvedKeybinding {
 
 	constructor(mapper: MacLinuxKeyboardMapper, OS: OperatingSystem, firstPart: ScanCodeBinding, chordPart: ScanCodeBinding) {
 		super();
+		if (!firstPart) {
+			throw new Error(`Invalid USLayoutResolvedKeybinding`);
+		}
 		this._mapper = mapper;
 		this._OS = OS;
 		this._firstPart = firstPart;
@@ -205,9 +201,9 @@ class ScanCodeCombo {
 		);
 	}
 
-	private getProducedCharCode(mapping: IScanCodeMapping): number {
+	private getProducedCharCode(mapping: IMacLinuxKeyMapping): string {
 		if (!mapping) {
-			return 0;
+			return '';
 		}
 		if (this.ctrlKey && this.shiftKey && this.altKey) {
 			return mapping.withShiftAltGr;
@@ -221,8 +217,8 @@ class ScanCodeCombo {
 		return mapping.value;
 	}
 
-	public getProducedChar(mapping: IScanCodeMapping): string {
-		const charCode = this.getProducedCharCode(mapping);
+	public getProducedChar(mapping: IMacLinuxKeyMapping): string {
+		const charCode = MacLinuxKeyboardMapper.getCharCode(this.getProducedCharCode(mapping));
 		if (charCode === 0) {
 			return ' --- ';
 		}
@@ -272,17 +268,6 @@ class ScanCodeKeyCodeMapper {
 	}
 
 	public registrationComplete(): void {
-		for (let i = 0; i < ScanCode.MAX_VALUE; i++) {
-			let base = (i << 3);
-			for (let j = 0; j < 8; j++) {
-				let actual = base + j;
-				let entry = this._scanCodeToKeyCode[actual];
-				if (typeof entry === 'undefined') {
-					log(`${ScanCodeUtils.toString(i)} - ${j.toString(2)} --- is missing`);
-				}
-			}
-		}
-
 		// IntlHash and IntlBackslash are rare keys, so ensure they don't end up being the preferred...
 		this._moveToEnd(ScanCode.IntlHash);
 		this._moveToEnd(ScanCode.IntlBackslash);
@@ -448,10 +433,6 @@ class ScanCodeKeyCodeMapper {
 export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 
 	/**
-	 * Is the keyboard type ISO (on Mac)
-	 */
-	private readonly _isISOKeyboard: boolean;
-	/**
 	 * Is this the standard US keyboard layout?
 	 */
 	private readonly _isUSStandard: boolean;
@@ -462,7 +443,7 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 	/**
 	 * used only for debug purposes.
 	 */
-	private readonly _codeInfo: IScanCodeMapping[];
+	private readonly _codeInfo: IMacLinuxKeyMapping[];
 	/**
 	 * Maps ScanCode combos <-> KeyCode combos.
 	 */
@@ -476,8 +457,7 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 	 */
 	private readonly _scanCodeToDispatch: string[] = [];
 
-	constructor(isISOKeyboard: boolean, isUSStandard: boolean, rawMappings: IMacLinuxKeyboardMapping, OS: OperatingSystem) {
-		this._isISOKeyboard = isISOKeyboard;
+	constructor(isUSStandard: boolean, rawMappings: IMacLinuxKeyboardMapping, OS: OperatingSystem) {
 		this._isUSStandard = isUSStandard;
 		this._OS = OS;
 		this._codeInfo = [];
@@ -508,14 +488,6 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 			}
 		};
 
-		let producesLetter: boolean[] = [];
-		const _registerLetterIfMissing = (charCode: CharCode, scanCode: ScanCode, keyCode: KeyCode): void => {
-			if (!producesLetter[charCode]) {
-				_registerAllCombos(0, 0, 0, scanCode, keyCode);
-			}
-		};
-
-
 		// Initialize `_scanCodeToLabel`
 		for (let scanCode = ScanCode.None; scanCode < ScanCode.MAX_VALUE; scanCode++) {
 			this._scanCodeToLabel[scanCode] = null;
@@ -541,23 +513,90 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 			}
 		}
 
+		// Try to identify keyboard layouts where characters A-Z are missing
+		// and forcefully map them to their corresponding scan codes if that is the case
+		const missingLatinLettersOverride: { [scanCode: string]: IMacLinuxKeyMapping; } = {};
+
+		{
+			let producesLatinLetter: boolean[] = [];
+			for (let strScanCode in rawMappings) {
+				if (rawMappings.hasOwnProperty(strScanCode)) {
+					const scanCode = ScanCodeUtils.toEnum(strScanCode);
+					if (scanCode === ScanCode.None) {
+						continue;
+					}
+					if (IMMUTABLE_CODE_TO_KEY_CODE[scanCode] !== -1) {
+						continue;
+					}
+
+					const rawMapping = rawMappings[strScanCode];
+					const value = MacLinuxKeyboardMapper.getCharCode(rawMapping.value);
+
+					if (value >= CharCode.a && value <= CharCode.z) {
+						const upperCaseValue = CharCode.A + (value - CharCode.a);
+						producesLatinLetter[upperCaseValue] = true;
+					}
+				}
+			}
+
+			const _registerLetterIfMissing = (charCode: CharCode, scanCode: ScanCode, value: string, withShift: string): void => {
+				if (!producesLatinLetter[charCode]) {
+					missingLatinLettersOverride[ScanCodeUtils.toString(scanCode)] = {
+						value: value,
+						withShift: withShift,
+						withAltGr: '',
+						withShiftAltGr: ''
+					};
+				}
+			};
+
+			// Ensure letters are mapped
+			_registerLetterIfMissing(CharCode.A, ScanCode.KeyA, 'a', 'A');
+			_registerLetterIfMissing(CharCode.B, ScanCode.KeyB, 'b', 'B');
+			_registerLetterIfMissing(CharCode.C, ScanCode.KeyC, 'c', 'C');
+			_registerLetterIfMissing(CharCode.D, ScanCode.KeyD, 'd', 'D');
+			_registerLetterIfMissing(CharCode.E, ScanCode.KeyE, 'e', 'E');
+			_registerLetterIfMissing(CharCode.F, ScanCode.KeyF, 'f', 'F');
+			_registerLetterIfMissing(CharCode.G, ScanCode.KeyG, 'g', 'G');
+			_registerLetterIfMissing(CharCode.H, ScanCode.KeyH, 'h', 'H');
+			_registerLetterIfMissing(CharCode.I, ScanCode.KeyI, 'i', 'I');
+			_registerLetterIfMissing(CharCode.J, ScanCode.KeyJ, 'j', 'J');
+			_registerLetterIfMissing(CharCode.K, ScanCode.KeyK, 'k', 'K');
+			_registerLetterIfMissing(CharCode.L, ScanCode.KeyL, 'l', 'L');
+			_registerLetterIfMissing(CharCode.M, ScanCode.KeyM, 'm', 'M');
+			_registerLetterIfMissing(CharCode.N, ScanCode.KeyN, 'n', 'N');
+			_registerLetterIfMissing(CharCode.O, ScanCode.KeyO, 'o', 'O');
+			_registerLetterIfMissing(CharCode.P, ScanCode.KeyP, 'p', 'P');
+			_registerLetterIfMissing(CharCode.Q, ScanCode.KeyQ, 'q', 'Q');
+			_registerLetterIfMissing(CharCode.R, ScanCode.KeyR, 'r', 'R');
+			_registerLetterIfMissing(CharCode.S, ScanCode.KeyS, 's', 'S');
+			_registerLetterIfMissing(CharCode.T, ScanCode.KeyT, 't', 'T');
+			_registerLetterIfMissing(CharCode.U, ScanCode.KeyU, 'u', 'U');
+			_registerLetterIfMissing(CharCode.V, ScanCode.KeyV, 'v', 'V');
+			_registerLetterIfMissing(CharCode.W, ScanCode.KeyW, 'w', 'W');
+			_registerLetterIfMissing(CharCode.X, ScanCode.KeyX, 'x', 'X');
+			_registerLetterIfMissing(CharCode.Y, ScanCode.KeyY, 'y', 'Y');
+			_registerLetterIfMissing(CharCode.Z, ScanCode.KeyZ, 'z', 'Z');
+		}
+
 		let mappings: IScanCodeMapping[] = [], mappingsLen = 0;
 		for (let strScanCode in rawMappings) {
 			if (rawMappings.hasOwnProperty(strScanCode)) {
 				const scanCode = ScanCodeUtils.toEnum(strScanCode);
 				if (scanCode === ScanCode.None) {
-					log(`Unknown ScanCode ${strScanCode} in mapping.`);
 					continue;
 				}
 				if (IMMUTABLE_CODE_TO_KEY_CODE[scanCode] !== -1) {
 					continue;
 				}
 
-				const rawMapping = rawMappings[strScanCode];
-				const value = MacLinuxKeyboardMapper._getCharCode(rawMapping.value);
-				const withShift = MacLinuxKeyboardMapper._getCharCode(rawMapping.withShift);
-				const withAltGr = MacLinuxKeyboardMapper._getCharCode(rawMapping.withAltGr);
-				const withShiftAltGr = MacLinuxKeyboardMapper._getCharCode(rawMapping.withShiftAltGr);
+				this._codeInfo[scanCode] = rawMappings[strScanCode];
+
+				const rawMapping = missingLatinLettersOverride[strScanCode] || rawMappings[strScanCode];
+				const value = MacLinuxKeyboardMapper.getCharCode(rawMapping.value);
+				const withShift = MacLinuxKeyboardMapper.getCharCode(rawMapping.withShift);
+				const withAltGr = MacLinuxKeyboardMapper.getCharCode(rawMapping.withAltGr);
+				const withShiftAltGr = MacLinuxKeyboardMapper.getCharCode(rawMapping.withShiftAltGr);
 
 				const mapping: IScanCodeMapping = {
 					scanCode: scanCode,
@@ -567,16 +606,13 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 					withShiftAltGr: withShiftAltGr,
 				};
 				mappings[mappingsLen++] = mapping;
-				this._codeInfo[scanCode] = mapping;
 
 				this._scanCodeToDispatch[scanCode] = `[${ScanCodeUtils.toString(scanCode)}]`;
 
 				if (value >= CharCode.a && value <= CharCode.z) {
 					const upperCaseValue = CharCode.A + (value - CharCode.a);
-					producesLetter[upperCaseValue] = true;
 					this._scanCodeToLabel[scanCode] = String.fromCharCode(upperCaseValue);
 				} else if (value >= CharCode.A && value <= CharCode.Z) {
-					producesLetter[value] = true;
 					this._scanCodeToLabel[scanCode] = String.fromCharCode(value);
 				} else if (value) {
 					this._scanCodeToLabel[scanCode] = String.fromCharCode(value);
@@ -708,34 +744,6 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 		_registerAllCombos(0, 0, 0, ScanCode.Digit8, KeyCode.KEY_8);
 		_registerAllCombos(0, 0, 0, ScanCode.Digit9, KeyCode.KEY_9);
 		_registerAllCombos(0, 0, 0, ScanCode.Digit0, KeyCode.KEY_0);
-
-		// Ensure letters are mapped
-		_registerLetterIfMissing(CharCode.A, ScanCode.KeyA, KeyCode.KEY_A);
-		_registerLetterIfMissing(CharCode.B, ScanCode.KeyB, KeyCode.KEY_B);
-		_registerLetterIfMissing(CharCode.C, ScanCode.KeyC, KeyCode.KEY_C);
-		_registerLetterIfMissing(CharCode.D, ScanCode.KeyD, KeyCode.KEY_D);
-		_registerLetterIfMissing(CharCode.E, ScanCode.KeyE, KeyCode.KEY_E);
-		_registerLetterIfMissing(CharCode.F, ScanCode.KeyF, KeyCode.KEY_F);
-		_registerLetterIfMissing(CharCode.G, ScanCode.KeyG, KeyCode.KEY_G);
-		_registerLetterIfMissing(CharCode.H, ScanCode.KeyH, KeyCode.KEY_H);
-		_registerLetterIfMissing(CharCode.I, ScanCode.KeyI, KeyCode.KEY_I);
-		_registerLetterIfMissing(CharCode.J, ScanCode.KeyJ, KeyCode.KEY_J);
-		_registerLetterIfMissing(CharCode.K, ScanCode.KeyK, KeyCode.KEY_K);
-		_registerLetterIfMissing(CharCode.L, ScanCode.KeyL, KeyCode.KEY_L);
-		_registerLetterIfMissing(CharCode.M, ScanCode.KeyM, KeyCode.KEY_M);
-		_registerLetterIfMissing(CharCode.N, ScanCode.KeyN, KeyCode.KEY_N);
-		_registerLetterIfMissing(CharCode.O, ScanCode.KeyO, KeyCode.KEY_O);
-		_registerLetterIfMissing(CharCode.P, ScanCode.KeyP, KeyCode.KEY_P);
-		_registerLetterIfMissing(CharCode.Q, ScanCode.KeyQ, KeyCode.KEY_Q);
-		_registerLetterIfMissing(CharCode.R, ScanCode.KeyR, KeyCode.KEY_R);
-		_registerLetterIfMissing(CharCode.S, ScanCode.KeyS, KeyCode.KEY_S);
-		_registerLetterIfMissing(CharCode.T, ScanCode.KeyT, KeyCode.KEY_T);
-		_registerLetterIfMissing(CharCode.U, ScanCode.KeyU, KeyCode.KEY_U);
-		_registerLetterIfMissing(CharCode.V, ScanCode.KeyV, KeyCode.KEY_V);
-		_registerLetterIfMissing(CharCode.W, ScanCode.KeyW, KeyCode.KEY_W);
-		_registerLetterIfMissing(CharCode.X, ScanCode.KeyX, KeyCode.KEY_X);
-		_registerLetterIfMissing(CharCode.Y, ScanCode.KeyY, KeyCode.KEY_Y);
-		_registerLetterIfMissing(CharCode.Z, ScanCode.KeyZ, KeyCode.KEY_Z);
 
 		this._scanCodeKeyCodeMapper.registrationComplete();
 	}
@@ -926,7 +934,7 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 
 		const immutableKeyCode = IMMUTABLE_CODE_TO_KEY_CODE[binding.scanCode];
 		if (immutableKeyCode !== -1) {
-			return USER_SETTINGS.fromKeyCode(immutableKeyCode).toLowerCase();
+			return KeyCodeUtils.toUserSettingsUS(immutableKeyCode).toLowerCase();
 		}
 
 		// Check if this scanCode always maps to the same keyCode and back
@@ -937,7 +945,7 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 			for (let i = 0, len = reverseBindings.length; i < len; i++) {
 				const reverseBinding = reverseBindings[i];
 				if (reverseBinding.scanCode === binding.scanCode) {
-					return USER_SETTINGS.fromKeyCode(constantKeyCode).toLowerCase();
+					return KeyCodeUtils.toUserSettingsUS(constantKeyCode).toLowerCase();
 				}
 			}
 		}
@@ -1045,21 +1053,6 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 			code = ScanCode.Enter;
 		}
 
-		if (this._OS === OperatingSystem.Macintosh && this._isISOKeyboard) {
-			// See https://github.com/Microsoft/vscode/issues/24153
-			// On OSX, on ISO keyboards, Chromium swaps the scan codes
-			// of IntlBackslash and Backquote.
-
-			switch (code) {
-				case ScanCode.IntlBackslash:
-					code = ScanCode.Backquote;
-					break;
-				case ScanCode.Backquote:
-					code = ScanCode.IntlBackslash;
-					break;
-			}
-		}
-
 		const keyCode = keyboardEvent.keyCode;
 
 		if (
@@ -1153,7 +1146,7 @@ export class MacLinuxKeyboardMapper implements IKeyboardMapper {
 	 * To the brave person following me: Good Luck!
 	 * https://www.compart.com/en/unicode/bidiclass/NSM
 	 */
-	private static _getCharCode(char: string): number {
+	public static getCharCode(char: string): number {
 		if (char.length === 0) {
 			return 0;
 		}

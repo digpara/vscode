@@ -37,10 +37,7 @@ export class ViewEventHandler extends Disposable {
 	public onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
 		return false;
 	}
-	public onCursorPositionChanged(e: viewEvents.ViewCursorPositionChangedEvent): boolean {
-		return false;
-	}
-	public onCursorSelectionChanged(e: viewEvents.ViewCursorSelectionChangedEvent): boolean {
+	public onCursorStateChanged(e: viewEvents.ViewCursorStateChangedEvent): boolean {
 		return false;
 	}
 	public onDecorationsChanged(e: viewEvents.ViewDecorationsChangedEvent): boolean {
@@ -50,6 +47,9 @@ export class ViewEventHandler extends Disposable {
 		return false;
 	}
 	public onFocusChanged(e: viewEvents.ViewFocusChangedEvent): boolean {
+		return false;
+	}
+	public onLanguageConfigurationChanged(e: viewEvents.ViewLanguageConfigurationEvent): boolean {
 		return false;
 	}
 	public onLineMappingChanged(e: viewEvents.ViewLineMappingChangedEvent): boolean {
@@ -100,14 +100,8 @@ export class ViewEventHandler extends Disposable {
 					}
 					break;
 
-				case viewEvents.ViewEventType.ViewCursorPositionChanged:
-					if (this.onCursorPositionChanged(e)) {
-						shouldRender = true;
-					}
-					break;
-
-				case viewEvents.ViewEventType.ViewCursorSelectionChanged:
-					if (this.onCursorSelectionChanged(e)) {
+				case viewEvents.ViewEventType.ViewCursorStateChanged:
+					if (this.onCursorStateChanged(e)) {
 						shouldRender = true;
 					}
 					break;
@@ -126,6 +120,12 @@ export class ViewEventHandler extends Disposable {
 
 				case viewEvents.ViewEventType.ViewFocusChanged:
 					if (this.onFocusChanged(e)) {
+						shouldRender = true;
+					}
+					break;
+
+				case viewEvents.ViewEventType.ViewLanguageConfigurationChanged:
+					if (this.onLanguageConfigurationChanged(e)) {
 						shouldRender = true;
 					}
 					break;
@@ -183,7 +183,6 @@ export class ViewEventHandler extends Disposable {
 						shouldRender = true;
 					}
 					break;
-
 
 				case viewEvents.ViewEventType.ViewThemeChanged:
 					if (this.onThemeChanged(e)) {

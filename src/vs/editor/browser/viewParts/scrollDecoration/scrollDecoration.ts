@@ -11,8 +11,8 @@ import { ViewPart } from 'vs/editor/browser/view/viewPart';
 import { ViewContext } from 'vs/editor/common/view/viewContext';
 import { RenderingContext, RestrictedRenderingContext } from 'vs/editor/common/view/renderingContext';
 import * as viewEvents from 'vs/editor/common/view/viewEvents';
-import { registerThemingParticipant } from "vs/platform/theme/common/themeService";
-import { scrollbarShadow } from "vs/platform/theme/common/colorRegistry";
+import { registerThemingParticipant } from 'vs/platform/theme/common/themeService';
+import { scrollbarShadow } from 'vs/platform/theme/common/colorRegistry';
 
 export class ScrollDecorationViewPart extends ViewPart {
 
@@ -31,6 +31,8 @@ export class ScrollDecorationViewPart extends ViewPart {
 		this._shouldShow = false;
 		this._useShadows = this._context.configuration.editor.viewInfo.scrollbar.useShadows;
 		this._domNode = createFastDomNode(document.createElement('div'));
+		this._domNode.setAttribute('role', 'presentation');
+		this._domNode.setAttribute('aria-hidden', 'true');
 	}
 
 	public dispose(): void {
@@ -52,7 +54,12 @@ export class ScrollDecorationViewPart extends ViewPart {
 
 	private _updateWidth(): boolean {
 		const layoutInfo = this._context.configuration.editor.layoutInfo;
-		let newWidth = layoutInfo.width - layoutInfo.minimapWidth;
+		let newWidth = 0;
+		if (layoutInfo.renderMinimap === 0 || (layoutInfo.minimapWidth > 0 && layoutInfo.minimapLeft === 0)) {
+			newWidth = layoutInfo.width;
+		} else {
+			newWidth = layoutInfo.width - layoutInfo.minimapWidth - layoutInfo.verticalScrollbarWidth;
+		}
 		if (this._width !== newWidth) {
 			this._width = newWidth;
 			return true;

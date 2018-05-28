@@ -11,6 +11,8 @@ import * as sourcemaps from 'gulp-sourcemaps';
 import * as filter from 'gulp-filter';
 import * as minifyCSS from 'gulp-cssnano';
 import * as uglify from 'gulp-uglify';
+import * as composer from 'gulp-uglify/composer';
+import * as uglifyes from 'uglify-es';
 import * as es from 'event-stream';
 import * as concat from 'gulp-concat';
 import * as VinylFile from 'vinyl';
@@ -28,7 +30,7 @@ function log(prefix: string, message: string): void {
 	gulpUtil.log(gulpUtil.colors.cyan('[' + prefix + ']'), message);
 }
 
-export function loaderConfig(emptyPaths: string[]) {
+export function loaderConfig(emptyPaths?: string[]) {
 	const result = {
 		paths: {
 			'vs': 'out-build/vs',
@@ -69,7 +71,7 @@ function loader(bundledFileHeader: string, bundleLoader: boolean): NodeJS.ReadWr
 					this.emit('data', new VinylFile({
 						path: 'fake',
 						base: '',
-						contents: new Buffer(bundledFileHeader)
+						contents: Buffer.from(bundledFileHeader)
 					}));
 					this.emit('data', data);
 				} else {
@@ -113,7 +115,7 @@ function toConcatStream(bundledFileHeader: string, sources: bundle.IFile[], dest
 		return new VinylFile({
 			path: source.path ? root + '/' + source.path.replace(/\\/g, '/') : 'fake',
 			base: base,
-			contents: new Buffer(source.contents)
+			contents: Buffer.from(source.contents)
 		});
 	});
 
@@ -158,6 +160,10 @@ export interface IOptimizeTaskOpts {
 	 * (out folder name)
 	 */
 	out: string;
+	/**
+	 * (languages to process)
+	 */
+	languages: i18n.Language[];
 }
 export function optimizeTask(opts: IOptimizeTaskOpts): () => NodeJS.ReadWriteStream {
 	const entryPoints = opts.entryPoints;
@@ -193,7 +199,7 @@ export function optimizeTask(opts: IOptimizeTaskOpts): () => NodeJS.ReadWriteStr
 				bundleInfoArray.push(new VinylFile({
 					path: 'bundleInfo.json',
 					base: '.',
-					contents: new Buffer(JSON.stringify(result.bundleData, null, '\t'))
+					contents: Buffer.from(JSON.stringify(result.bundleData, null, '\t'))
 				}));
 			}
 			es.readArray(bundleInfoArray).pipe(bundleInfoStream);
@@ -228,11 +234,12 @@ export function optimizeTask(opts: IOptimizeTaskOpts): () => NodeJS.ReadWriteStr
 				includeContent: true
 			}))
 			.pipe(i18n.processNlsFiles({
-				fileHeader: bundledFileHeader
+				fileHeader: bundledFileHeader,
+				languages: opts.languages
 			}))
 			.pipe(gulp.dest(out));
 	};
-};
+}
 
 declare class FileWithCopyright extends VinylFile {
 	public __hasOurCopyright: boolean;
@@ -271,14 +278,14 @@ function uglifyWithCopyrights(): NodeJS.ReadWriteStream {
 		};
 	};
 
+	const minify = composer(uglifyes);
 	const input = es.through();
 	const output = input
 		.pipe(flatmap((stream, f) => {
-			return stream.pipe(uglify({
-				preserveComments: preserveComments(<FileWithCopyright>f),
+			return stream.pipe(minify({
 				output: {
-					// linux tfs build agent is crashing, does this help?§
-					max_line_len: 3200000
+					comments: preserveComments(<FileWithCopyright>f),
+					max_line_len: 1024
 				}
 			}));
 		}));
@@ -286,7 +293,7 @@ function uglifyWithCopyrights(): NodeJS.ReadWriteStream {
 	return es.duplex(input, output);
 }
 
-export function minifyTask(src: string, sourceMapBaseUrl: string): (cb: any) => void {
+export function minifyTask(src: string, sourceMapBaseUrl?: string): (cb: any) => void {
 	const sourceMappingURL = sourceMapBaseUrl && (f => `${sourceMapBaseUrl}/${f.relative}.map`);
 
 	return cb => {
@@ -317,4 +324,4 @@ export function minifyTask(src: string, sourceMapBaseUrl: string): (cb: any) => 
 				cb(err);
 			});
 	};
-};
+}

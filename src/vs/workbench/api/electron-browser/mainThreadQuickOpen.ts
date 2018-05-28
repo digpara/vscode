@@ -6,30 +6,46 @@
 
 import { TPromise } from 'vs/base/common/winjs.base';
 import { asWinJsPromise } from 'vs/base/common/async';
-import { IThreadService } from 'vs/workbench/services/thread/common/threadService';
-import { IQuickOpenService, IPickOptions, IInputOptions } from 'vs/platform/quickOpen/common/quickOpen';
-import { InputBoxOptions } from 'vscode';
-import { ExtHostContext, MainThreadQuickOpenShape, ExtHostQuickOpenShape, MyQuickPickItems } from '../node/extHost.protocol';
+import { IPickOptions, IInputOptions, IQuickInputService, IQuickInput } from 'vs/platform/quickinput/common/quickInput';
+import { InputBoxOptions, CancellationToken } from 'vscode';
+import { ExtHostContext, MainThreadQuickOpenShape, ExtHostQuickOpenShape, MyQuickPickItems, MainContext, IExtHostContext } from '../node/extHost.protocol';
+import { extHostNamedCustomer } from 'vs/workbench/api/electron-browser/extHostCustomers';
 
-export class MainThreadQuickOpen extends MainThreadQuickOpenShape {
+interface MultiStepSession {
+	handle: number;
+	input: IQuickInput;
+	token: CancellationToken;
+}
+
+@extHostNamedCustomer(MainContext.MainThreadQuickOpen)
+export class MainThreadQuickOpen implements MainThreadQuickOpenShape {
 
 	private _proxy: ExtHostQuickOpenShape;
-	private _quickOpenService: IQuickOpenService;
+	private _quickInputService: IQuickInputService;
 	private _doSetItems: (items: MyQuickPickItems[]) => any;
 	private _doSetError: (error: Error) => any;
 	private _contents: TPromise<MyQuickPickItems[]>;
 	private _token: number = 0;
+	private _multiStep: MultiStepSession;
 
 	constructor(
-		@IThreadService threadService: IThreadService,
-		@IQuickOpenService quickOpenService: IQuickOpenService
+		extHostContext: IExtHostContext,
+		@IQuickInputService quickInputService: IQuickInputService
 	) {
-		super();
-		this._proxy = threadService.get(ExtHostContext.ExtHostQuickOpen);
-		this._quickOpenService = quickOpenService;
+		this._proxy = extHostContext.getProxy(ExtHostContext.ExtHostQuickOpen);
+		this._quickInputService = quickInputService;
 	}
 
-	$show(options: IPickOptions): Thenable<number> {
+	public dispose(): void {
+	}
+
+	$show(multiStepHandle: number | undefined, options: IPickOptions): TPromise<number | number[]> {
+
+		const multiStep = typeof multiStepHandle === 'number';
+		if (multiStep && !(this._multiStep && multiStepHandle === this._multiStep.handle && !this._multiStep.token.isCancellationRequested)) {
+			return TPromise.as(undefined);
+		}
+		const input: IQuickInput = multiStep ? this._multiStep.input : this._quickInputService;
 
 		const myToken = ++this._token;
 
@@ -47,26 +63,39 @@ export class MainThreadQuickOpen extends MainThreadQuickOpenShape {
 			};
 		});
 
-		return asWinJsPromise(token => this._quickOpenService.pick(this._contents, options, token)).then(item => {
-			if (item) {
-				return item.handle;
-			}
-			return undefined;
-		}, undefined, progress => {
-			if (progress) {
-				this._proxy.$onItemSelected((<MyQuickPickItems>progress).handle);
-			}
-		});
+		if (options.canPickMany) {
+			return asWinJsPromise(token => input.pick(this._contents, options as { canPickMany: true }, token)).then(items => {
+				if (items) {
+					return items.map(item => item.handle);
+				}
+				return undefined;
+			}, undefined, progress => {
+				if (progress) {
+					this._proxy.$onItemSelected((<MyQuickPickItems>progress).handle);
+				}
+			});
+		} else {
+			return asWinJsPromise(token => input.pick(this._contents, options, token)).then(item => {
+				if (item) {
+					return item.handle;
+				}
+				return undefined;
+			}, undefined, progress => {
+				if (progress) {
+					this._proxy.$onItemSelected((<MyQuickPickItems>progress).handle);
+				}
+			});
+		}
 	}
 
-	$setItems(items: MyQuickPickItems[]): Thenable<any> {
+	$setItems(items: MyQuickPickItems[]): TPromise<any> {
 		if (this._doSetItems) {
 			this._doSetItems(items);
 		}
 		return undefined;
 	}
 
-	$setError(error: Error): Thenable<any> {
+	$setError(error: Error): TPromise<any> {
 		if (this._doSetError) {
 			this._doSetError(error);
 		}
@@ -75,7 +104,13 @@ export class MainThreadQuickOpen extends MainThreadQuickOpenShape {
 
 	// ---- input
 
-	$input(options: InputBoxOptions, validateInput: boolean): TPromise<string> {
+	$input(multiStepHandle: number | undefined, options: InputBoxOptions, validateInput: boolean): TPromise<string> {
+
+		const multiStep = typeof multiStepHandle === 'number';
+		if (multiStep && !(this._multiStep && multiStepHandle === this._multiStep.handle && !this._multiStep.token.isCancellationRequested)) {
+			return TPromise.as(undefined);
+		}
+		const input: IQuickInput = multiStep ? this._multiStep.input : this._quickInputService;
 
 		const inputOptions: IInputOptions = Object.create(null);
 
@@ -94,6 +129,27 @@ export class MainThreadQuickOpen extends MainThreadQuickOpenShape {
 			};
 		}
 
-		return asWinJsPromise(token => this._quickOpenService.input(inputOptions, token));
+		return asWinJsPromise(token => input.input(inputOptions, token));
+	}
+
+	// ---- Multi-step input
+
+	$multiStep(handle: number): TPromise<never> {
+		let outerReject: (err: any) => void;
+		let innerResolve: (value: void) => void;
+		const promise = new TPromise<never>((_, rej) => outerReject = rej, () => innerResolve(undefined));
+		this._quickInputService.multiStepInput((input, token) => {
+			this._multiStep = { handle, input, token };
+			const promise = new TPromise<void>(res => innerResolve = res);
+			token.onCancellationRequested(() => innerResolve(undefined));
+			return promise;
+		})
+			.then(() => promise.cancel(), err => outerReject(err))
+			.then(() => {
+				if (this._multiStep && this._multiStep.handle === handle) {
+					this._multiStep = null;
+				}
+			});
+		return promise;
 	}
 }

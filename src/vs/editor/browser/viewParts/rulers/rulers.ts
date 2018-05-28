@@ -19,16 +19,16 @@ export class Rulers extends ViewPart {
 	public domNode: FastDomNode<HTMLElement>;
 	private _renderedRulers: FastDomNode<HTMLElement>[];
 	private _rulers: number[];
-	private _height: number;
 	private _typicalHalfwidthCharacterWidth: number;
 
 	constructor(context: ViewContext) {
 		super(context);
 		this.domNode = createFastDomNode<HTMLElement>(document.createElement('div'));
+		this.domNode.setAttribute('role', 'presentation');
+		this.domNode.setAttribute('aria-hidden', 'true');
 		this.domNode.setClassName('view-rulers');
 		this._renderedRulers = [];
 		this._rulers = this._context.configuration.editor.viewInfo.rulers;
-		this._height = this._context.configuration.editor.layoutInfo.contentHeight;
 		this._typicalHalfwidthCharacterWidth = this._context.configuration.editor.fontInfo.typicalHalfwidthCharacterWidth;
 	}
 
@@ -41,7 +41,6 @@ export class Rulers extends ViewPart {
 	public onConfigurationChanged(e: viewEvents.ViewConfigurationChangedEvent): boolean {
 		if (e.viewInfo || e.layoutInfo || e.fontInfo) {
 			this._rulers = this._context.configuration.editor.viewInfo.rulers;
-			this._height = this._context.configuration.editor.layoutInfo.contentHeight;
 			this._typicalHalfwidthCharacterWidth = this._context.configuration.editor.fontInfo.typicalHalfwidthCharacterWidth;
 			return true;
 		}
@@ -67,11 +66,12 @@ export class Rulers extends ViewPart {
 		}
 
 		if (currentCount < desiredCount) {
-			// Add more rulers
+			const rulerWidth = this._context.model.getTabSize();
 			let addCount = desiredCount - currentCount;
 			while (addCount > 0) {
 				let node = createFastDomNode(document.createElement('div'));
 				node.setClassName('view-ruler');
+				node.setWidth(rulerWidth);
 				this.domNode.appendChild(node);
 				this._renderedRulers.push(node);
 				addCount--;
@@ -103,6 +103,6 @@ export class Rulers extends ViewPart {
 registerThemingParticipant((theme, collector) => {
 	let rulerColor = theme.getColor(editorRuler);
 	if (rulerColor) {
-		collector.addRule(`.monaco-editor .view-ruler { background-color: ${rulerColor}; }`);
+		collector.addRule(`.monaco-editor .view-ruler { box-shadow: 1px 0 0 0 ${rulerColor} inset; }`);
 	}
 });
