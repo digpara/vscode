@@ -1885,6 +1885,9 @@ declare module 'vscode' {
 	 * Kind of a code action.
 	 *
 	 * Kinds are a hierarchical list of identifiers separated by `.`, e.g. `"refactor.extract.function"`.
+	 *
+	 * Code action kinds are used by VS Code for UI elements such as the refactoring context menu. Users
+	 * can also trigger code actions with a specific kind with the `editor.action.codeAction` command.
 	 */
 	export class CodeActionKind {
 		/**
@@ -1893,12 +1896,16 @@ declare module 'vscode' {
 		static readonly Empty: CodeActionKind;
 
 		/**
-		 * Base kind for quickfix actions: `quickfix`
+		 * Base kind for quickfix actions: `quickfix`.
+		 *
+		 * Quick fix actions address a problem in the code and are shown in the normal code action context menu.
 		 */
 		static readonly QuickFix: CodeActionKind;
 
 		/**
 		 * Base kind for refactoring actions: `refactor`
+		 *
+		 * Refactoring actions are shown in the refactoring context menu.
 		 */
 		static readonly Refactor: CodeActionKind;
 
@@ -1944,12 +1951,13 @@ declare module 'vscode' {
 		/**
 		 * Base kind for source actions: `source`
 		 *
-		 * Source code actions apply to the entire file.
+		 * Source code actions apply to the entire file and can be run on save
+		 * using `editor.codeActionsOnSave`. They also are shown in `source` context menu.
 		 */
 		static readonly Source: CodeActionKind;
 
 		/**
-		 * Base kind for an organize imports source action: `source.organizeImports`
+		 * Base kind for an organize imports source action: `source.organizeImports`.
 		 */
 		static readonly SourceOrganizeImports: CodeActionKind;
 
@@ -5258,6 +5266,23 @@ declare module 'vscode' {
 	}
 
 	/**
+	 * Restore webview panels that have been persisted when vscode shuts down.
+	 */
+	interface WebviewPanelSerializer {
+		/**
+		 * Restore a webview panel from its seriailzed `state`.
+		 *
+		 * Called when a serialized webview first becomes visible.
+		 *
+		 * @param webviewPanel Webview panel to restore. The serializer should take ownership of this panel.
+		 * @param state Persisted state. This state comesfrom the value set inside the webview by `acquireVsCodeApi().setState`.
+		 *
+		 * @return Thanble indicating that the webview has been fully restored.
+		 */
+		deserializeWebviewPanel(webviewPanel: WebviewPanel, state: any): Thenable<void>;
+	}
+
+	/**
 	 * Namespace describing the environment the editor runs in.
 	 */
 	export namespace env {
@@ -5750,6 +5775,19 @@ declare module 'vscode' {
 		 * @return New webview panel.
 		 */
 		export function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn | { viewColumn: ViewColumn, preserveFocus?: boolean }, options?: WebviewPanelOptions & WebviewOptions): WebviewPanel;
+
+		/**
+		 * Registers a [webview panel serializer](#WebviewPanelSerializer).
+		 *
+		 * Extensions that support reviving should have an `"onWebviewPanel:viewType"` activation method and
+		 * make sure that [registerWebviewPanelSerializer](#registerWebviewPanelSerializer) is called during activation.
+		 *
+		 * Only a single serializer may be registered at a time for a given `viewType`.
+		 *
+		 * @param viewType Type of the webview panel that can be serialized.
+		 * @param reviver Webview serializer.
+		 */
+		export function registerWebviewPanelSerializer(viewType: string, reviver: WebviewPanelSerializer): Disposable;
 
 		/**
 		 * Set a message to the status bar. This is a short hand for the more powerful
